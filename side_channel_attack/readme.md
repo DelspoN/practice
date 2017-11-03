@@ -5,9 +5,11 @@
 - side channel attack
 - pin tool
 
-## Pin Tool 사용법
+## Pin Tool
 
-`source/tools/SimpleExamples` 디렉토리에 다양한 예제 파일들이 존재합니다.
+핀툴은 인텔에서 만든 Dynamic Binary Instrumentation 툴입니다. 처리 속도가 빠르지만 인텔 아키텍처가 아닌 바이너리에는 사용이 불가능합니다. (`https://software.intel.com/en-us/articles/pin-a-dynamic-binary-instrumentation-tool`에서 다운로드할 수 있습니다.)
+
+다운로드 받은 디렉토리를 살펴보면 `source/tools/SimpleExamples` 디렉토리에 다양한 예제 파일들이 존재합니다.
 
 ```
 total 372
@@ -58,7 +60,7 @@ total 372
 -rw-r----- 1 11270804 12453  3447 Aug 27 20:44 xed-use.cpp
 ```
 
-자신에게 필요한 예제를 골라서 잘 활용하면 됩니다. 이 중에서 `icount.cpp`를 사용해보도록 하겠습니다.
+자신에게 필요한 예제를 골라서 잘 활용하면 됩니다. 이 중에서 실행되는 인스트럭터의 갯수를 카운트해주는 `icount.cpp`를 사용해보도록 하겠습니다.
 
 ```c
 #include "pin.H"
@@ -113,17 +115,17 @@ int main(int argc, char *argv[])
 }
 ```
 
- 위는 `icount.cpp`의 코드입니다. 바이너리에서 실행되는 instructor를 카운트해줍니다. 위 코드를 컴파일해보겠습니다.
+위는 `icount.cpp`의 코드입니다. 자신의 상황에 맞게 조금씩 수정하여 컴파일하면 됩니다.
 
 ```
 $ make					# 64비트 컴파일
 $ make TARGET=ia32		# 32비트 컴파일
 ```
 
- `source/tools/MyPinTool` 디렉토리에 컴파일 환경이 미리 세팅되어 있습니다. `icount.cpp`코드를 `MyPinTool.cpp`로 복사한 후, make 해줍니다.(옵션을 통해 바이너리에 맞게 컴파일 해줍니다.)
+컴파일 환경은  `source/tools/MyPinTool` 디렉토리에 미리 세팅되어 있습니다. `icount.cpp`코드를 `MyPinTool.cpp`로 복사한 후, make 해줍니다.(옵션을 통해 바이너리에 맞게 컴파일 해줍니다.)
 
 ```
-# ./pin -t source/tools/MyPinTool/obj-ia32/MyPinTool.so -- ../ass01
+$ ./pin -t source/tools/MyPinTool/obj-ia32/MyPinTool.so -- ../ass01
 a
 Wrong
 Count [46258]
@@ -131,13 +133,47 @@ Count [46258]
 
 컴파일된 라이브러리를 활용하여 위처럼 실행할 수 있습니다.
 
-## Solution - ass01
+## 문제 풀이1
 
-ass01은 어셈블리로 짜여진 바이너리입니다. 코드를 분석하기는 너무 복잡하기 때문에 사이드 채널 공격을 통해 ass01의 패스워드를 알아내겠습니다. 프로세스가 작동하는 시간으로도 공격이 가능은 합니다. 하지만 데이터를 많이 쌓아야 하고, 해보면 알겠지만 너무 다양한 값이 나오기 때문에 이는 불안정한 방법입니다. 그래서 핀툴을 통해 바이너리에서 실행되는 인스트럭터를 카운트하여 공격했습니다.
+ass01은 어셈블리로 짜여진 32비트 바이너리입니다. 패스워드를 알아맞추는 리버싱 문제입니다. ~~코드를 하나하나 분석하기는 너무 귀찮기 때문에~~ 사이드 채널 공격을 통해 ass01의 패스워드를 알아내겠습니다. 패스워드 입력 후 프로세스가 작동되는 시간으로도 공격이 가능은 합니다만 해보면 알겠지만 너무 다양한 값이 나오기 때문에 이를 식별하려면 수많은 데이터가 필요합니다. 반면, 핀툴을 통해 바이너리에서 실행되는 인스트럭터를 카운트하면 비교적으로 정확한 공격이 가능합니다.
 
-패스워드가 한바이트씩 비교되는 방식이기 때문에 한바이트씩 브루트포싱하여 패스워드가 옳지 않으면 똑같은 로직으로 들어가면서 실행되는 인스트럭터의 갯수가 같을 것입니다. 유니크한 값을 찾아서 패스워드를 맞추면 됩니다. 
+공격 가능성을 확인하기 위해 아래의 코드를 이용하여 테스트 해보겠습니다.
+
+```python
+from pwn import *
+import string
+
+frequency = {}
+password = ""
+
+for i in range(len(string.printable)):
+	p = process(["../../pin/pin", "-t", "./MyPinTool.so", "--", "./ass01"])
+	p.sendline(password + string.printable[i])
+	response = p.recvuntil("Count [")
+	count = p.recvuntil("]")[:-1]
+	print "[{}] ".format(string.printable[i]) + str(count)
+	p.close()
+```
+
+아래의 실행 결과를 통해, 입력값이 i,j,k와 n,o,p,q일 때 실행되는 인스트럭터의 갯수는 일정함을 확인할 수있습니다. 반면 l의 경우 다른 값이 나옵니다. 즉 i,j,k,n,o,p,q는 패스워드가 아니고 l이 패스워드라는 것을 의미합니다.
 
 ```
+[i] 46258
+[j] 46258
+[k] 46258
+[l] 45952
+[m] 46196
+[n] 46196
+[o] 46196
+[p] 46196
+[q] 46196
+[r] 46196
+[s] 46196
+```
+
+이는 패스워드가 한바이트씩 비교되는 방식이기 때문입니다. 옳지 않은 패스워드 값이 입력되면 똑같은 로직으로 들어가기 때문에 실행되는 인스트럭터의 갯수가 같고, 옳은 패스워드 값이 들어가면 실행되는 인스터럭터의 갯수가 다릅니다. 이 원리를 이용하여 패스워드를 맞추면 됩니다. 아래는 제가 작성한 브루트포싱 코드입니다.
+
+```python
 from pwn import *
 import string
 
@@ -183,5 +219,64 @@ l3ss_1s_m0r3!
 $ ./ass01
 l3ss_1s_m0r3!
 Key: l3ss_1s_m0r3!
+```
+
+
+
+## 문제풀이2
+
+핀툴을 공부한 후 때마침 2017 화이트햇 콘테스트에 핀툴을 이용하는 리버싱 문제가 나왔습니다.
+
+```
+$ ./crackme 
+PASSCODE : aaaaa
+FAILED
+```
+바이너리를 실행해보면 패스코드를 맞추는 문제라는 것을 알 수 있습니다. 64비트 핀툴 라이브러리 코드를 컴파일한 후, 문제1의 코드를 조금만 수정하면 문제를 해결할 수 있습니다.
+
+```python
+from pwn import *
+import string
+
+frequency = {}
+password = ""
+end_flag = 0
+string.printable = string.printable.replace("\t\n\r\x0b\x0c", "")
+
+while True:
+	for i in range(len(string.printable)):
+		p = process(["../../pin/pin", "-t", "./MyPinTool_64.so", "--", "./crackme"])
+		p.recv()
+		p.sendline(password + string.printable[i])
+		response = p.recvuntil("Count [")
+		if "FAILED" not in response:
+			password += string.printable[i]
+			print "=================="
+			print password
+                        print "=================="
+			exit()
+		count = p.recvuntil("]")[:-1]
+		if count not in frequency:
+			frequency[count] = [1, string.printable[i]]
+		else:
+			frequency[count][0] += 1
+		#print "[{}] ".format(string.printable[i]) + str(count)
+		p.close()
+
+	for k in frequency.keys():
+		if frequency[k][0] == 1:
+			password += frequency[k][1]
+			frequency.clear()
+			break
+	print password
+```
+
+## Result
+
+```
+$ python ex_crackme.py 
+==================
+H4PPyW1THC0nCTF!
+==================
 ```
 
