@@ -1,0 +1,12 @@
+service prob
+{
+    disable = no
+    socket_type = stream
+    protocol    = tcp
+    wait        = no
+    user        = prob
+    bind        = 0.0.0.0
+    server      = /home/prob/meltdown_tester
+    type        = UNLISTED
+    port        = 1818
+}
